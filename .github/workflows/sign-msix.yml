@@ -11,7 +11,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔐 RESTAURA O CERTIFICADO (SUBSTITUI certutil)
       - name: Restore certificate
         shell: powershell
         env:
@@ -20,28 +19,23 @@ jobs:
           $bytes = [System.Convert]::FromBase64String($env:CERT_BASE64)
           [System.IO.File]::WriteAllBytes("cert.pfx", $bytes)
 
-      # 🖊️ ASSINA O MSIX
       - name: Sign MSIX
         shell: powershell
         env:
           CERT_PASS: ${{ secrets.MSIX_CERT_PASSWORD }}
         run: |
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
-            -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
 
-          $signtool = Get-ChildItem -Path "$vsPath" -Recurse -Filter signtool.exe | Select-Object -First 1
-
-          if (-not $signtool) {
+          if (-not (Test-Path $signtool)) {
             throw "signtool.exe não encontrado"
           }
 
-          & $signtool.FullName sign `
+          & $signtool sign `
             /fd SHA256 `
             /f cert.pfx `
             /p $env:CERT_PASS `
             SimpliPlay.UWP_1.0.1.0_x64.msix
 
-      # 📦 UPLOAD DO MSIX ASSINADO
       - name: Upload signed MSIX
         uses: actions/upload-artifact@v4
         with:
