@@ -1,0 +1,32 @@
+name: Sign MSIX
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sign:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Restore certificate
+      shell: cmd
+      env:
+        CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
+      run: |
+        echo %CERT_BASE64% > cert.b64
+        certutil -decode cert.b64 cert.pfx
+
+    - name: Sign MSIX
+      shell: cmd
+      env:
+        CERT_PASS: ${{ secrets.MSIX_CERT_PASSWORD }}
+      run: |
+        signtool sign /fd SHA256 /f cert.pfx /p %CERT_PASS% SimpliPlay.UWP_1.0.1.0_x64.msix
+
+    - name: Upload signed MSIX
+      uses: actions/upload-artifact@v4
+      with:
+        name: signed-msix
+        path: SimpliPlay.UWP_1.0.1.0_x64.msix
