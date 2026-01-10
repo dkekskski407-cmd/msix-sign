@@ -1,0 +1,67 @@
+name: Sign MSIX
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sign:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 🔐 Criar certificado Code Signing válido para MSIX
+      - name: Create Code Signing Certificate
+        shell: powershell
+        run: |
+          Write-Host "Criando certificado Code Signing..."
+
+          $cert = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject "CN=SimpliPlay" `
+            -KeyUsage DigitalSignature `
+            -KeyAlgorithm RSA `
+            -KeyLength 2048 `
+            -CertStoreLocation "Cert:\CurrentUser\My"
+
+          $pwd = ConvertTo-SecureString "1234" -AsPlainText -Force
+
+          Export-PfxCertificate `
+            -Cert $cert `
+            -FilePath cert.pfx `
+            -Password $pwd
+
+      # 🖊️ Assinar MSIX
+      - name: Sign MSIX
+        shell: powershell
+        run: |
+          Write-Host "Procurando signtool.exe..."
+
+          $signtool = Get-ChildItem `
+            "C:\Program Files (x86)\Windows Kits" `
+            -Recurse `
+            -Filter signtool.exe `
+            -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\" } |
+            Select-Object -First 1
+
+          if (-not $signtool) {
+            throw "signtool.exe não encontrado"
+          }
+
+          Write-Host "Usando signtool em:"
+          Write-Host $signtool.FullName
+
+          & $signtool.FullName sign `
+            /fd SHA256 `
+            /f cert.pfx `
+            /p 1234 `
+            SimpliPlay.UWP_1.0.1.0_x64.msix
+
+      # 📦 Upload do MSIX assinado
+      - name: Upload signed MSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-msix
+          path: SimpliPlay.UWP_1.0.1.0_x64.msix
