@@ -1,4 +1,4 @@
-name: Sign MSIX
+name: Sign MSIX (Generate Cert)
 
 on:
   workflow_dispatch:
@@ -11,21 +11,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore certificate
+      - name: Create Code Signing Certificate
         shell: powershell
-        env:
-          CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
         run: |
-          Write-Host "Restaurando certificado PFX..."
-          $bytes = [System.Convert]::FromBase64String($env:CERT_BASE64)
-          [System.IO.File]::WriteAllBytes("cert.pfx", $bytes)
+          Write-Host "Criando certificado Code Signing compatível com MSIX..."
+
+          $cert = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject "CN=MSIXDevCert" `
+            -KeyAlgorithm RSA `
+            -KeyLength 2048 `
+            -HashAlgorithm SHA256 `
+            -CertStoreLocation "Cert:\CurrentUser\My"
+
+          Write-Host "Exportando PFX com senha 1234..."
+
+          $password = ConvertTo-SecureString -String "1234" -Force -AsPlainText
+
+          Export-PfxCertificate `
+            -Cert $cert `
+            -FilePath msix.pfx `
+            -Password $password
+
+          Write-Host "Convertendo PFX para Base64..."
+
+          $bytes = [System.IO.File]::ReadAllBytes("msix.pfx")
+          $base64 = [System.Convert]::ToBase64String($bytes)
+          Set-Content -Path msix.pfx.b64 -Value $base64
 
       - name: Sign MSIX
         shell: powershell
-        env:
-          CERT_PASS: ${{ secrets.MSIX_CERT_PASSWORD }}
         run: |
-          Write-Host "Procurando signtool.exe no Windows Kits..."
+          Write-Host "Procurando signtool.exe..."
 
           $signtool = Get-ChildItem `
             "C:\Program Files (x86)\Windows Kits" `
@@ -36,7 +53,7 @@ jobs:
             Select-Object -First 1
 
           if (-not $signtool) {
-            throw "signtool.exe não encontrado no Windows Kits"
+            throw "signtool.exe não encontrado"
           }
 
           Write-Host "Usando signtool em:"
@@ -44,12 +61,15 @@ jobs:
 
           & $signtool.FullName sign `
             /fd SHA256 `
-            /f cert.pfx `
-            /p $env:CERT_PASS `
+            /f msix.pfx `
+            /p 1234 `
             SimpliPlay.UWP_1.0.1.0_x64.msix
 
-      - name: Upload signed MSIX
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: signed-msix
-          path: SimpliPlay.UWP_1.0.1.0_x64.msix
+          name: msix-signing-output
+          path: |
+            msix.pfx
+            msix.pfx.b64
+            SimpliPlay.UWP_1.0.1.0_x64.msix
