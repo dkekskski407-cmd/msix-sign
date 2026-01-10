@@ -11,30 +11,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 🔐 Criar certificado Code Signing válido para MSIX
-      - name: Create Code Signing Certificate
+      # 🔐 Restaurar certificado PFX a partir do Secret
+      - name: Restore certificate
         shell: powershell
+        env:
+          CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
         run: |
-          Write-Host "Criando certificado Code Signing..."
+          Write-Host "Restaurando certificado PFX a partir do Base64..."
+          $bytes = [System.Convert]::FromBase64String($env:CERT_BASE64)
+          [System.IO.File]::WriteAllBytes("cert.pfx", $bytes)
 
-          $cert = New-SelfSignedCertificate `
-            -Type CodeSigningCert `
-            -Subject "CN=SimpliPlay" `
-            -KeyUsage DigitalSignature `
-            -KeyAlgorithm RSA `
-            -KeyLength 2048 `
-            -CertStoreLocation "Cert:\CurrentUser\My"
-
-          $pwd = ConvertTo-SecureString "1234" -AsPlainText -Force
-
-          Export-PfxCertificate `
-            -Cert $cert `
-            -FilePath cert.pfx `
-            -Password $pwd
-
-      # 🖊️ Assinar MSIX
+      # 🖊️ Assinar o MSIX
       - name: Sign MSIX
         shell: powershell
+        env:
+          CERT_PASS: ${{ secrets.MSIX_CERT_PASSWORD }}
         run: |
           Write-Host "Procurando signtool.exe..."
 
@@ -47,7 +38,7 @@ jobs:
             Select-Object -First 1
 
           if (-not $signtool) {
-            throw "signtool.exe não encontrado"
+            throw "signtool.exe não encontrado no Windows Kits"
           }
 
           Write-Host "Usando signtool em:"
@@ -56,7 +47,7 @@ jobs:
           & $signtool.FullName sign `
             /fd SHA256 `
             /f cert.pfx `
-            /p 1234 `
+            /p $env:CERT_PASS `
             SimpliPlay.UWP_1.0.1.0_x64.msix
 
       # 📦 Upload do MSIX assinado
